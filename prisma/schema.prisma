@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Users: seeded from the corporate directory in dev
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  displayName  String    @map("display_name")
+  role         String    @default("employee") // 'employee' | 'admin'
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  kudosSent       Kudos[]              @relation("KudosSender")
+  kudosReceived   Kudos[]              @relation("KudosRecipient")
+  moderatedKudos  Kudos[]              @relation("KudosModerator")
+  sessions        Session[]
+  moderationLogs  ModerationAction[]  @relation("ModerationAdmin")
+
+  @@map("users")
+}
+
+// Kudos: one row per recognition given
+model Kudos {
+  id                  String    @id @default(uuid())
+  senderId            String    @map("sender_id")
+  recipientId         String    @map("recipient_id")
+  message             String
+  isVisible           Boolean   @default(true) @map("is_visible")
+  moderatedById       String?   @map("moderated_by")
+  moderatedAt         DateTime? @map("moderated_at")
+  reasonForModeration String?   @map("reason_for_moderation")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  sender           User               @relation("KudosSender", fields: [senderId], references: [id])
+  recipient        User               @relation("KudosRecipient", fields: [recipientId], references: [id])
+  moderatedBy      User?              @relation("KudosModerator", fields: [moderatedById], references: [id])
+  moderationActions ModerationAction[]
+
+  @@index([isVisible, createdAt(sort: Desc)])
+  @@index([recipientId])
+  @@map("kudos")
+}
+
+// Sessions: server-side session store
+model Session {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// Moderation audit log: one row per hide/unhide/delete action
+model ModerationAction {
+  id        String   @id @default(uuid())
+  kudosId   String?  @map("kudos_id") // nullable: audit survives kudos deletion
+  adminId   String   @map("admin_id")
+  action    String // 'hide' | 'unhide' | 'delete'
+  reason    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  kudos Kudos? @relation(fields: [kudosId], references: [id], onDelete: SetNull)
+  admin User   @relation("ModerationAdmin", fields: [adminId], references: [id])
+
+  @@index([kudosId])
+  @@index([adminId])
+  @@map("moderation_actions")
+}
